@@ -1,0 +1,7 @@
+[package]
+name = "cmdline-parser"
+version = "0.1.0"
+authors = ["Klemens Schölhorn <klemens@schoelhorn.eu>"]
+description = "Platform-resembling cmdline parsing for building shells"
+
+[dependencies]
