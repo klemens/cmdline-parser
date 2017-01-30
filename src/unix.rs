@@ -36,13 +36,15 @@ impl<'a> Iterator for Parser<'a> {
 
         if let Some(&(mut start, _)) = self.cmdline.peek() {
             let mut yield_value = false;
+            let mut was_quoted = false;
+
             for (i, c) in &mut self.cmdline {
                 self.state = match (self.state, c) {
                     (Normal, '\\') => Escaped,
                     (Normal, '\'') => SingleQuoted,
                     (Normal, '"') => DoubleQuoted,
                     (Normal, ' ') => {
-                        if arg.len() > 0 {
+                        if arg.len() > 0 || was_quoted {
                             yield_value = true;
                         } else {
                             start = i + 1;
@@ -51,9 +53,9 @@ impl<'a> Iterator for Parser<'a> {
                     },
                     (Normal, _) |
                     (Escaped, _) => { arg.push(c); Normal },
-                    (SingleQuoted, '\'') => Normal,
+                    (SingleQuoted, '\'') => { was_quoted = true; Normal },
                     (SingleQuoted, _) => { arg.push(c); SingleQuoted },
-                    (DoubleQuoted, '"') => Normal,
+                    (DoubleQuoted, '"') => { was_quoted = true; Normal },
                     (DoubleQuoted, '\\') => DoubleQuotedEscaped,
                     (DoubleQuoted, _) |
                     (DoubleQuotedEscaped, '"') |
@@ -70,7 +72,7 @@ impl<'a> Iterator for Parser<'a> {
                 }
             }
 
-            if arg.len() > 0 {
+            if arg.len() > 0 || was_quoted {
                 return Some((start, self.cmdline_len - 1, arg));
             }
         }
@@ -115,6 +117,9 @@ mod tests {
             (33, 39, r#"arg'5"#.into()),
             (41, 48, r#"arg"6"#.into()),
         ]);
+
+        // emtpy arguments
+        assert_eq!(parse(r#"'' """#), [(0, 1, r"".into()), (3, 4, r"".into())]);
 
         // unfinished escaping
         assert_eq!(parse(r#"a\"#), [(0, 1, r"a".into())]);
