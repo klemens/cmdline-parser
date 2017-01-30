@@ -1,61 +1,89 @@
-#[derive(PartialEq, Eq)]
+use std::iter::Peekable;
+use std::str::CharIndices;
+
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum ParsingState {
     Normal,
     Quoted,
     QuotedEscaped,
 }
 
-pub fn parse(cmdline: &str) -> Vec<(usize, usize, String)> {
-    use self::ParsingState::*;
+pub struct Parser<'a> {
+    state: ParsingState,
+    cmdline: Peekable<CharIndices<'a>>,
+    cmdline_len: usize,
+}
 
-    let mut args = vec![];
-    let mut arg = String::new();
-    let mut arg_start = 0;
+impl<'a> Parser<'a> {
+    pub fn new(cmdline: &str) -> Parser {
+        Parser {
+            state: ParsingState::Normal,
+            cmdline: cmdline.char_indices().peekable(),
+            cmdline_len: cmdline.len(),
+        }
+    }
+}
 
-    let mut state = Normal;
+impl<'a> Iterator for Parser<'a> {
+    type Item = (usize, usize, String);
 
-    for (i, c) in cmdline.char_indices() {
-        state = match (state, c) {
-            (Normal, '"') => Quoted,
-            (Normal, ' ') => {
-                if arg.len() > 0 {
-                    args.push((arg_start, i - 1, arg.clone()));
-                    arg.clear();
+    fn next(&mut self) -> Option<Self::Item> {
+        use self::ParsingState::*;
+
+        let mut arg = String::new();
+
+        if let Some(&(mut start, _)) = self.cmdline.peek() {
+            let mut yield_value = false;
+            for (i, c) in &mut self.cmdline {
+                self.state = match (self.state, c) {
+                    (Normal, '"') => Quoted,
+                    (Normal, ' ') => {
+                        if arg.len() > 0 {
+                            yield_value = true;
+                        } else {
+                            start = i + 1;
+                        }
+                        Normal
+                    },
+                    (Normal, _) => { arg.push(c); Normal },
+                    (Quoted, '"') => Normal,
+                    (Quoted, '\\') => QuotedEscaped,
+                    (Quoted, _) => { arg.push(c); Quoted },
+                    (QuotedEscaped, '"') |
+                    (QuotedEscaped, '\\') => { arg.push(c); Quoted },
+                    (QuotedEscaped, _) => {
+                        arg.push('\\');
+                        arg.push(c);
+                        Quoted
+                    },
+                };
+
+                if yield_value {
+                    return Some((start, i - 1, arg));
                 }
-                arg_start = i + 1;
-                Normal
-            },
-            (Normal, _) => { arg.push(c); Normal },
-            (Quoted, '"') => Normal,
-            (Quoted, '\\') => QuotedEscaped,
-            (Quoted, _) => { arg.push(c); Quoted },
-            (QuotedEscaped, '"') |
-            (QuotedEscaped, '\\') => { arg.push(c); Quoted },
-            (QuotedEscaped, _) => {
+            }
+
+            if self.state == QuotedEscaped {
                 arg.push('\\');
-                arg.push(c);
-                Quoted
-            },
-        };
-    }
+            }
 
-    if state == QuotedEscaped {
-        arg.push('\\');
-    }
+            if arg.len() > 0 {
+                return Some((start, self.cmdline_len - 1, arg));
+            }
+        }
 
-    if arg.len() > 0 {
-        args.push((arg_start, cmdline.len() - 1, arg));
+        None
     }
-
-    args
 }
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn parse() {
-        use super::parse;
+    pub fn parse(cmdline: &str) -> Vec<(usize, usize, String)> {
+        super::Parser::new(cmdline).collect()
+    }
 
+    #[test]
+    fn parser() {
         // no quoting, escaping should have no effect
         assert_eq!(parse(r"arg1 arg\2 arg3\ arg4  arg5"), [
             ( 0,  3, r"arg1".into()),

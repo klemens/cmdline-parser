@@ -1,4 +1,7 @@
-#[derive(PartialEq, Eq)]
+use std::iter::Peekable;
+use std::str::CharIndices;
+
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum ParsingState {
     Normal,
     Escaped,
@@ -7,58 +10,83 @@ enum ParsingState {
     DoubleQuotedEscaped,
 }
 
-pub fn parse(cmdline: &str) -> Vec<(usize, usize, String)> {
-    use self::ParsingState::*;
+pub struct Parser<'a> {
+    state: ParsingState,
+    cmdline: Peekable<CharIndices<'a>>,
+    cmdline_len: usize,
+}
 
-    let mut args = vec![];
-    let mut arg = String::new();
-    let mut arg_start = 0;
+impl<'a> Parser<'a> {
+    pub fn new(cmdline: &str) -> Parser {
+        Parser {
+            state: ParsingState::Normal,
+            cmdline: cmdline.char_indices().peekable(),
+            cmdline_len: cmdline.len(),
+        }
+    }
+}
 
-    let mut state = Normal;
+impl<'a> Iterator for Parser<'a> {
+    type Item = (usize, usize, String);
 
-    for (i, c) in cmdline.char_indices() {
-        state = match (state, c) {
-            (Normal, '\\') => Escaped,
-            (Normal, '\'') => SingleQuoted,
-            (Normal, '"') => DoubleQuoted,
-            (Normal, ' ') => {
-                if arg.len() > 0 {
-                    args.push((arg_start, i - 1, arg.clone()));
-                    arg.clear();
+    fn next(&mut self) -> Option<Self::Item> {
+        use self::ParsingState::*;
+
+        let mut arg = String::new();
+
+        if let Some(&(mut start, _)) = self.cmdline.peek() {
+            let mut yield_value = false;
+            for (i, c) in &mut self.cmdline {
+                self.state = match (self.state, c) {
+                    (Normal, '\\') => Escaped,
+                    (Normal, '\'') => SingleQuoted,
+                    (Normal, '"') => DoubleQuoted,
+                    (Normal, ' ') => {
+                        if arg.len() > 0 {
+                            yield_value = true;
+                        } else {
+                            start = i + 1;
+                        }
+                        Normal
+                    },
+                    (Normal, _) |
+                    (Escaped, _) => { arg.push(c); Normal },
+                    (SingleQuoted, '\'') => Normal,
+                    (SingleQuoted, _) => { arg.push(c); SingleQuoted },
+                    (DoubleQuoted, '"') => Normal,
+                    (DoubleQuoted, '\\') => DoubleQuotedEscaped,
+                    (DoubleQuoted, _) |
+                    (DoubleQuotedEscaped, '"') |
+                    (DoubleQuotedEscaped, '\\') => { arg.push(c); DoubleQuoted },
+                    (DoubleQuotedEscaped, _) => {
+                        arg.push('\\');
+                        arg.push(c);
+                        DoubleQuoted
+                    },
+                };
+
+                if yield_value {
+                    return Some((start, i - 1, arg));
                 }
-                arg_start = i + 1;
-                Normal
-            },
-            (Normal, _) |
-            (Escaped, _) => { arg.push(c); Normal },
-            (SingleQuoted, '\'') => Normal,
-            (SingleQuoted, _) => { arg.push(c); SingleQuoted },
-            (DoubleQuoted, '"') => Normal,
-            (DoubleQuoted, '\\') => DoubleQuotedEscaped,
-            (DoubleQuoted, _) |
-            (DoubleQuotedEscaped, '"') |
-            (DoubleQuotedEscaped, '\\') => { arg.push(c); DoubleQuoted },
-            (DoubleQuotedEscaped, _) => {
-                arg.push('\\');
-                arg.push(c);
-                DoubleQuoted
-            },
-        };
-    }
+            }
 
-    if arg.len() > 0 {
-        args.push((arg_start, cmdline.len() - 1, arg));
-    }
+            if arg.len() > 0 {
+                return Some((start, self.cmdline_len - 1, arg));
+            }
+        }
 
-    args
+        None
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn parse() {
-        use super::parse;
+    pub fn parse(cmdline: &str) -> Vec<(usize, usize, String)> {
+        super::Parser::new(cmdline).collect()
+    }
 
+    #[test]
+    fn parser() {
         // no quoting and simple escaping
         assert_eq!(parse(r"arg1 arg\2 arg3\ arg4  arg5 \a\r\g\\6"), [
             ( 0,  3, r"arg1".into()),
