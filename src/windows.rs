@@ -1,4 +1,5 @@
 use std::iter::Peekable;
+use std::ops::Range;
 use std::str::CharIndices;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -25,7 +26,7 @@ impl<'a> Parser<'a> {
 }
 
 impl<'a> Iterator for Parser<'a> {
-    type Item = (usize, usize, String);
+    type Item = (Range<usize>, String);
 
     fn next(&mut self) -> Option<Self::Item> {
         use self::ParsingState::*;
@@ -61,7 +62,7 @@ impl<'a> Iterator for Parser<'a> {
                 };
 
                 if yield_value {
-                    return Some((start, i - 1, arg));
+                    return Some((start..i, arg));
                 }
             }
 
@@ -70,7 +71,7 @@ impl<'a> Iterator for Parser<'a> {
             }
 
             if arg.len() > 0 || was_quoted {
-                return Some((start, self.cmdline_len - 1, arg));
+                return Some((start..self.cmdline_len, arg));
             }
         }
 
@@ -80,38 +81,36 @@ impl<'a> Iterator for Parser<'a> {
 
 #[cfg(test)]
 mod tests {
-    pub fn parse(cmdline: &str) -> Vec<(usize, usize, String)> {
-        super::Parser::new(cmdline).collect()
-    }
-
     #[test]
     fn parser() {
+        let parse = |cmd| -> Vec<_> { super::Parser::new(cmd).collect() };
+
         // no quoting, escaping should have no effect
         assert_eq!(parse(r"arg1 arg\2 arg3\ arg4  arg5"), [
-            ( 0,  3, r"arg1".into()),
-            ( 5,  9, r"arg\2".into()),
-            (11, 15, r"arg3\".into()),
-            (17, 20, r"arg4".into()),
-            (23, 26, r"arg5".into()),
+            ( 0.. 4, r"arg1".into()),
+            ( 5..10, r"arg\2".into()),
+            (11..16, r"arg3\".into()),
+            (17..21, r"arg4".into()),
+            (23..27, r"arg5".into()),
         ]);
 
         // quoting and escaped quotes
         assert_eq!(parse(r#""arg 1" "arg "2 "arg\3" "arg\\4" "arg\"5""#), [
-            ( 0,  6, r#"arg 1"#.into()),
-            ( 8, 14, r#"arg 2"#.into()),
-            (16, 22, r#"arg\3"#.into()),
-            (24, 31, r#"arg\4"#.into()),
-            (33, 40, r#"arg"5"#.into()),
+            ( 0.. 7, r#"arg 1"#.into()),
+            ( 8..15, r#"arg 2"#.into()),
+            (16..23, r#"arg\3"#.into()),
+            (24..32, r#"arg\4"#.into()),
+            (33..41, r#"arg"5"#.into()),
         ]);
 
         // emtpy arguments
-        assert_eq!(parse(r#""" """#), [(0, 1, r"".into()), (3, 4, r"".into())]);
+        assert_eq!(parse(r#""" """#), [(0..2, r"".into()), (3..5, r"".into())]);
 
         // unfinished quoting
-        assert_eq!(parse(r#""a"#), [(0, 1, "a".into())]);
+        assert_eq!(parse(r#""a"#), [(0..2, "a".into())]);
 
         // unfinished escaping
-        assert_eq!(parse(r#""a\"#), [(0, 2, r"a\".into())]);
-        assert_eq!(parse(r#""a\""#), [(0, 3, r#"a""#.into())]);
+        assert_eq!(parse(r#""a\"#), [(0..3, r"a\".into())]);
+        assert_eq!(parse(r#""a\""#), [(0..4, r#"a""#.into())]);
     }
 }
