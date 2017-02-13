@@ -1,3 +1,5 @@
+//! bash-like cmdline parser
+
 use std::collections::HashSet;
 use std::iter::Peekable;
 use std::ops::Range;
@@ -12,6 +14,13 @@ enum ParsingState {
     DoubleQuotedEscaped,
 }
 
+/// Parser for bash-like command lines.
+///
+/// Supports parsing arguments which use escaping, single quotes and double
+/// quotes (no expansion of `$` etc.). Splits on spaces by default.
+///
+/// Unfinished quotings at the end of a command line are parsed successfully
+/// to support building of e.g. path completers.
 pub struct Parser<'a> {
     state: ParsingState,
     cmdline: Peekable<CharIndices<'a>>,
@@ -29,6 +38,9 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Change the list of chars which are used to separate arguments.
+    ///
+    /// Can be changed dynamically during parsing.
     pub fn set_separators<I: IntoIterator<Item=char>>(&mut self, separators: I) {
         self.separators.clear();
         self.separators.extend(separators);
