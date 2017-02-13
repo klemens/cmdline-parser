@@ -20,3 +20,13 @@ pub mod windows;
 pub use unix::Parser;
 #[cfg(windows)]
 pub use windows::Parser;
+
+/// Parse the given string as a single argument.
+///
+/// Resolves quoting and escaping, but does not split arguments.
+pub fn parse_single(argument: &str) -> String {
+    let mut parser = Parser::new(argument);
+    parser.set_separators(std::iter::empty());
+
+    parser.nth(0).map(|(_, arg)| arg).unwrap_or("".into())
+}
