@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::iter::Peekable;
 use std::ops::Range;
 use std::str::CharIndices;
@@ -13,6 +14,7 @@ pub struct Parser<'a> {
     state: ParsingState,
     cmdline: Peekable<CharIndices<'a>>,
     cmdline_len: usize,
+    separators: HashSet<char>,
 }
 
 impl<'a> Parser<'a> {
@@ -21,7 +23,13 @@ impl<'a> Parser<'a> {
             state: ParsingState::Normal,
             cmdline: cmdline.char_indices().peekable(),
             cmdline_len: cmdline.len(),
+            separators: [' '].iter().cloned().collect(),
         }
+    }
+
+    pub fn set_separators<I: IntoIterator<Item=char>>(&mut self, separators: I) {
+        self.separators.clear();
+        self.separators.extend(separators);
     }
 }
 
@@ -40,7 +48,7 @@ impl<'a> Iterator for Parser<'a> {
             for (i, c) in &mut self.cmdline {
                 self.state = match (self.state, c) {
                     (Normal, '"') => Quoted,
-                    (Normal, ' ') => {
+                    (Normal, ref c) if self.separators.contains(c) => {
                         if arg.len() > 0 || was_quoted {
                             yield_value = true;
                         } else {
@@ -112,5 +120,29 @@ mod tests {
         // unfinished escaping
         assert_eq!(parse(r#""a\"#), [(0..3, r"a\".into())]);
         assert_eq!(parse(r#""a\""#), [(0..4, r#"a""#.into())]);
+    }
+
+    #[test]
+    fn multiple_separators() {
+        let mut parser = super::Parser::new("arg1|arg 2:arg3");
+        parser.set_separators(['|', ':'].iter().cloned());
+
+        assert_eq!(parser.collect::<Vec<_>>(), [
+            (0..4, "arg1".into()),
+            (5..10, "arg 2".into()),
+            (11..15, "arg3".into()),
+        ]);
+    }
+
+    #[test]
+    fn dynamic_separators() {
+        let mut parser = super::Parser::new("arg1 arg 2:arg3");
+
+        assert_eq!(parser.next(), Some((0..4, "arg1".into())));
+
+        parser.set_separators([':'].iter().cloned());
+        assert_eq!(parser.next(), Some((5..10, "arg 2".into())));
+        assert_eq!(parser.next(), Some((11..15, "arg3".into())));
+        assert_eq!(parser.next(), None);
     }
 }
